@@ -2,26 +2,43 @@ package com.sun.util;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.time.DateFormatUtils;
-import org.apache.poi.hssf.usermodel.*;
+import org.apache.poi.hssf.usermodel.HSSFCell;
+import org.apache.poi.hssf.usermodel.HSSFCellStyle;
+import org.apache.poi.hssf.usermodel.HSSFFont;
+import org.apache.poi.hssf.usermodel.HSSFRow;
+import org.apache.poi.hssf.usermodel.HSSFSheet;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.formula.functions.T;
 import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.ss.util.RegionUtil;
 
 import javax.servlet.http.HttpServletResponse;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Field;
 import java.net.URLEncoder;
-import java.util.*;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
 
 /**
  * Excel 工具类
+ *
+ * @author Sun
+ * @date
  */
 public class ExcelUtil {
 
@@ -93,10 +110,9 @@ public class ExcelUtil {
         if (StringUtils.isBlank(fileName)) {
             fileName = defaultFileName();
         }
-        // 设置response头信息
-        // response.reset();
         try {
             fileName = URLEncoder.encode(fileName, "UTF-8");
+            // 设置response头信息
             // 改成输出excel文件
             response.setContentType("application/vnd.ms-excel");
             response.setHeader("Content-disposition", "attachment; filename="
@@ -145,7 +161,7 @@ public class ExcelUtil {
      * @param mappings  映射列表
      * @return
      */
-    public static <T> HSSFSheet createSheetByMapping(HSSFWorkbook book, String sheetName, List<T> list, List<ExcelMapping> mappings) {
+    public static <T> HSSFSheet createSheet(HSSFWorkbook book, String sheetName, List<T> list, List<ExcelMapping> mappings) {
         //在Workbook中，创建一个sheet，对应Excel中的工作薄（sheet）
         HSSFSheet sheet = book.createSheet(sheetName);
 
@@ -161,14 +177,14 @@ public class ExcelUtil {
             Optional<ExcelMapping> childrenMapping = mappings.stream().filter(e -> CollectionUtils.isNotEmpty(e.getChildren())).findAny();
             // 是否有子mapping
             List<ExcelMapping> titleMapping = mappings;
-            if (!childrenMapping.isPresent()) {
+            if (childrenMapping.isPresent()) {
                 //  添加表头
-                titleMapping = fillHeader(book, sheet, mappings, 0, 0);
+                titleMapping = fillHeader(book, sheet, mappings);
             }
             //  添加表头
-            setTitle(book, sheet, titleMapping, 0);
+            drawTitle(book, sheet, titleMapping);
             // 添加内容
-            setContent(book, sheet, titleMapping, list, 0 + 1);
+            drawContent(book, sheet, titleMapping, list);
             // 设置列宽
             setColumnWidth(sheet, titleMapping);
         } catch (Exception e) {
@@ -181,10 +197,9 @@ public class ExcelUtil {
      * @param book
      * @param sheet
      * @param mappings
-     * @param startRow
      * @return
      */
-    private static List<ExcelMapping> fillHeader(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> mappings, int startRow, int startCol) {
+    private static List<ExcelMapping> fillHeader(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> mappings) {
         List<ExcelMapping> columns = Lists.newArrayList();
         for (int i = 0; i < mappings.size(); i++) {
 
@@ -194,35 +209,46 @@ public class ExcelUtil {
                 lastMapping = mappings.get(i - 1);
             }
             ExcelMapping parentMapping = currentMapping.getParent();
+            if (parentMapping != null) {
+                currentMapping.setFirstRow(parentMapping.getLastRow() + 1);
+            } else {
+                currentMapping.setFirstRow(0);
+            }
 
             // 根据上一个mappings 和 parent 以及 列宽列高 来确定单元格大小位置
-            drawCellSize(book, sheet, currentMapping, lastMapping, parentMapping);
+            drawHeader(book, sheet, currentMapping, parentMapping, lastMapping);
 
             // 是否是header
             List<ExcelMapping> children = currentMapping.getChildren();
-            // 如果不是
-            if (CollectionUtils.isEmpty(children) && StringUtils.isNotBlank(currentMapping.getField())) {
+            // 如果有children表示不是
+            if (CollectionUtils.isNotEmpty(children)) {
+                List<ExcelMapping> excelMappings = fillHeader(book, sheet, children);
+                if (CollectionUtils.isNotEmpty(excelMappings)) {
+                    columns.addAll(excelMappings);
+                }
+            }
+            // 如果是mapping
+            else if (StringUtils.isNotBlank(currentMapping.getField())) {
                 if (currentMapping.getParent() == null) {
                     currentMapping.setFirstRow(0);
                 } else {
-                    currentMapping.setFirstRow(currentMapping.getLastRow() + 1);
+                    currentMapping.setFirstRow(parentMapping.getLastRow() + 1);
                 }
                 columns.add(currentMapping);
-            }
-            // 如果是header
-            else {
-                fillHeader(book, sheet, children, currentMapping.getLastRow(), currentMapping.getLastCol());
             }
         }
         return columns;
     }
 
     /**
-     * @param current 当前header
-     * @param last    左边header
-     * @param parent  父header
+     * @param book
+     * @param sheet
+     * @param current
+     * @param parent
+     * @param last
      */
-    private static void drawCellSize(HSSFWorkbook book, HSSFSheet sheet, ExcelMapping current, ExcelMapping last, ExcelMapping parent) {
+    private static void drawHeader(HSSFWorkbook book, HSSFSheet sheet, ExcelMapping current, ExcelMapping parent, ExcelMapping last) {
+
         int rows = current.getRows();
         int cols = current.getCols();
 
@@ -247,10 +273,8 @@ public class ExcelUtil {
             CellRangeAddress cra = new CellRangeAddress(current.getFirstRow(), current.getLastRow(), current.getFirstCol(), current.getLastCol());
             sheet.addMergedRegion(cra);
 
-            HSSFRow row = sheet.getRow(current.getFirstRow());
-            if (row == null) {
-                row = sheet.createRow(current.getFirstRow());
-            }
+            HSSFRow row = getOrCreateRow(sheet, current.getFirstRow());
+
             HSSFCell cell = row.createCell(current.getFirstCol());
             // 设置style
             if (current.getTitleStyle() != null) {
@@ -291,9 +315,9 @@ public class ExcelUtil {
 //            List<ExcelMapping> mappings = setHeader(book, sheet, headers,0);
 //
 //            //  添加表头
-//            setTitle(book, sheet, mappings, 0);
+//            drawTitle(book, sheet, mappings, 0);
 //            // 添加内容
-//            setContent(book, sheet, mappings, list, 0 + 1);
+//            drawContent(book, sheet, mappings, list, 0 + 1);
 //            // 设置列宽
 //            setColumnWidth(sheet, mappings);
 //        } catch (Exception e) {
@@ -302,39 +326,39 @@ public class ExcelUtil {
 //        return sheet;
 //    }
 
-    /**
-     * 填充自定义表头
-     *
-     * @param sheet
-     * @param headers
-     */
-    private static void fillHeader(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> headers) {
-        Map<Integer, HSSFRow> rows = new HashMap<>();
-        headers.stream().forEach(
-                h -> {
-                    sheet.addMergedRegion(new CellRangeAddress(h.getFirstRow(), h.getLastRow(), h.getFirstCol(), h.getLastCol()));
-                    HSSFRow row = rows.get(h.getFirstRow());
-                    if (row == null) {
-                        row = sheet.createRow(h.getFirstRow());
-                        rows.put(h.getFirstRow(), row);
-                    }
-                    HSSFCell cell = row.getCell(h.getFirstCol());
-                    if (cell == null) {
-                        cell = row.createCell(h.getFirstCol());
-                    }
-
-                    ExcelColumnCellStyle style = h.getTitleStyle();
-                    if (style != null) {
-                        HSSFCellStyle cellStyle = createStyle(book, style);
-                        cell.setCellStyle(cellStyle);
-                    }
-                    // 是否设置值
-                    if (h.getContent() != null) {
-                        defaultConvertSet(cell, h.getContent());
-                    }
-                }
-        );
-    }
+//    /**
+//     * 填充自定义表头
+//     *
+//     * @param sheet
+//     * @param headers
+//     */
+//    private static void fillHeader(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> headers) {
+//        Map<Integer, HSSFRow> rows = new HashMap<>();
+//        headers.stream().forEach(
+//                h -> {
+//                    sheet.addMergedRegion(new CellRangeAddress(h.getFirstRow(), h.getLastRow(), h.getFirstCol(), h.getLastCol()));
+//                    HSSFRow row = rows.get(h.getFirstRow());
+//                    if (row == null) {
+//                        row = getOrCreateRow(sheet, h.getFirstRow());
+//                        rows.put(h.getFirstRow(), row);
+//                    }
+//                    HSSFCell cell = row.getCell(h.getFirstCol());
+//                    if (cell == null) {
+//                        cell = row.createCell(h.getFirstCol());
+//                    }
+//
+//                    ExcelColumnCellStyle style = h.getTitleStyle();
+//                    if (style != null) {
+//                        HSSFCellStyle cellStyle = createStyle(book, style);
+//                        cell.setCellStyle(cellStyle);
+//                    }
+//                    // 是否设置值
+//                    if (h.getContent() != null) {
+//                        defaultConvertSet(cell, h.getContent());
+//                    }
+//                }
+//        );
+//    }
 
 
     /**
@@ -434,6 +458,20 @@ public class ExcelUtil {
 
     }
 
+    /**
+     * 创建行
+     *
+     * @param sheet
+     * @param rowIndex
+     * @return
+     */
+    private static HSSFRow getOrCreateRow(HSSFSheet sheet, int rowIndex) {
+        HSSFRow row = sheet.getRow(rowIndex);
+        if (row == null) {
+            row = sheet.createRow(rowIndex);
+        }
+        return row;
+    }
 
     /**
      * 添加表头
@@ -441,39 +479,25 @@ public class ExcelUtil {
      * @param sheet
      * @param mappings
      */
-    private static void setTitle(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> mappings, int startRow) {
-        // 在sheet中添加表头第 startRow 行
-        HSSFRow row = sheet.createRow(startRow);
+    private static void drawTitle(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> mappings) {
         // 填充表头
         for (int i = 0; i < mappings.size(); i++) {
+            ExcelMapping excelMapping = mappings.get(i);
+            // 在sheet中添加表头
+            HSSFRow row = getOrCreateRow(sheet, excelMapping.getFirstRow());
+
             HSSFCell cell = row.getCell(i);
             if (cell == null) {
                 cell = row.createCell(i);
             }
 
-            ExcelMapping excelMapping = mappings.get(i);
             ExcelColumnCellStyle titleStyle = excelMapping.getTitleStyle();
 
             if (titleStyle != null) {
                 HSSFCellStyle style = createStyle(book, titleStyle);
-//                if (titleStyle.getRowOffset() != null && titleStyle.getRowOffset() != 0) {
-//                    HSSFRow offsetRow = sheet.getRow(startRow + titleStyle.getRowOffset());
-//                    if (offsetRow == null) {
-//                        offsetRow = sheet.createRow(startRow + titleStyle.getRowOffset());
-//                    }
-//                    HSSFCell offsetCell = offsetRow.getCell(i);
-//                    if (offsetCell == null) {
-//                        offsetCell = offsetRow.createCell(i);
-//                    }
-//                    offsetCell.setCellStyle(style);
-//                    offsetCell.setCellValue(excelMapping.getTitle());
-//                } else {
                 cell.setCellStyle(style);
-                cell.setCellValue(excelMapping.getTitle());
-//                }
-            } else {
-                cell.setCellValue(excelMapping.getTitle());
             }
+            cell.setCellValue(excelMapping.getTitle());
         }
     }
 
@@ -488,7 +512,9 @@ public class ExcelUtil {
         HSSFCellStyle cellStyle = book.createCellStyle();
         HSSFFont font = book.createFont();
         font.setBold(style.getBold());
-        font.setFontHeightInPoints((short) style.getFontSize().intValue());
+        if (style.getFontSize() != null && style.getFontSize() != 0) {
+            font.setFontHeightInPoints((short) style.getFontSize().intValue());
+        }
         if (StringUtils.isNotBlank(style.getFontName())) {
             font.setFontName(style.getFontName());
         }
@@ -522,23 +548,25 @@ public class ExcelUtil {
      * @param list
      * @throws Exception
      */
-    private static <T> void setContent(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> mappings, List<T> list, int startRow) throws Exception {
+    private static <T> void drawContent(HSSFWorkbook book, HSSFSheet sheet, List<ExcelMapping> mappings, List<T> list) throws Exception {
         // 填充内容
         for (int n = 0; n < list.size(); n++) {
-            HSSFRow row = sheet.getRow(n + startRow);
-            if (row == null) {
-                row = sheet.createRow(n + startRow);
-            }
 
             // 获取单个对象
             T item = list.get(n);
             for (int i = 0; i < mappings.size(); i++) {
-                ExcelMapping mapping = mappings.get(i);
-                HSSFCellStyle columnStyle = createStyle(book, mapping.getColumnStyle());
 
+                ExcelMapping mapping = mappings.get(i);
+                // 计算行数
+                HSSFRow row = getOrCreateRow(sheet, mapping.getLastRow() + n + 1);
+                
                 HSSFCell cell = row.createCell(i);
+
                 // 设置style
-                cell.setCellStyle(columnStyle);
+                if (mapping.getColumnStyle() != null) {
+                    HSSFCellStyle columnStyle = createStyle(book, mapping.getColumnStyle());
+                    cell.setCellStyle(columnStyle);
+                }
                 // 设置内容
                 if (ExcelMapping.AUTO_INDEX.equals(mapping.getField())) {
                     cell.setCellValue(n + 1);

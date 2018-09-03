@@ -2,10 +2,13 @@ package com.sun.util;
 
 
 import com.google.common.collect.Lists;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
+import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Bean;
 
 import java.util.Arrays;
 import java.util.List;
@@ -80,6 +83,7 @@ public class ExcelMapping {
      */
     private Function function;
 
+
     /**
      * 添加子集
      *
@@ -90,12 +94,113 @@ public class ExcelMapping {
         if (CollectionUtils.isEmpty(children)) {
             children = Lists.newArrayList();
         }
-        List<ExcelMapping> children = Arrays.asList(excelMappings);
-        if (CollectionUtils.isNotEmpty(children)) {
-            this.children.addAll(children);
-            children.stream().forEach(e -> e.setParent(this));
+        List<ExcelMapping> childrenMappings = Arrays.asList(excelMappings);
+        addChildren(childrenMappings);
+        return this;
+    }
+
+    public ExcelMapping addChildren(List<ExcelMapping> mappings) {
+        if (CollectionUtils.isEmpty(children)) {
+            children = Lists.newArrayList();
+        }
+        if (CollectionUtils.isNotEmpty(mappings)) {
+            this.children.addAll(mappings);
+            mappings.stream().forEach(e -> e.setParent(this));
         }
         return this;
     }
 
+
+    public ExcelMapping(String title, String field) {
+        this.title = title;
+        this.field = field;
+    }
+
+    public ExcelMapping(String title, String field, int columnWidth) {
+        this.title = title;
+        this.field = field;
+        this.titleStyle = new ExcelColumnCellStyle(columnWidth);
+    }
+
+
+    public ExcelMapping(String title, String field, ExcelColumnCellStyle titleStyle) {
+        this.title = title;
+        this.field = field;
+        this.titleStyle = titleStyle;
+    }
+
+
+    public ExcelMapping(String title, String field, ExcelColumnCellStyle titleStyle, Integer columnWidth) {
+        this(title, field, titleStyle);
+        this.titleStyle.setColumnWidth(columnWidth);
+    }
+
+
+    public ExcelMapping(String title, String field, ExcelColumnCellStyle titleStyle, Integer columnWidth, Integer rows, Integer cols) {
+        this(title, field, titleStyle);
+        this.rows = rows;
+        this.cols = cols;
+        this.titleStyle.setColumnWidth(columnWidth);
+    }
+
+    public ExcelMapping(String title, String field, Function function) {
+        this(title, field, function, null);
+    }
+
+    public ExcelMapping(String title, String field, Function function, int columnWidth) {
+        this(title, field, function, new ExcelColumnCellStyle(columnWidth));
+    }
+
+    public ExcelMapping(String title, String field, Function function, int columnWidth, Integer rows, Integer cols) {
+        this(title, field, function, new ExcelColumnCellStyle(columnWidth));
+        this.rows = rows;
+        this.cols = cols;
+    }
+
+    public ExcelMapping(String title, String field, Function function, ExcelColumnCellStyle titleStyle) {
+        this.title = title;
+        this.field = field;
+        this.function = function;
+
+        this.titleStyle = titleStyle.clone();
+    }
+
+    public ExcelMapping(String title, String field, Function function, ExcelColumnCellStyle titleStyle, int columnWidth) {
+        this(title, field, function, titleStyle);
+        this.titleStyle.setColumnWidth(columnWidth);
+    }
+
+
+    public ExcelMapping(String title, String field, Function function, ExcelColumnCellStyle titleStyle, int columnWidth, Integer rows, Integer cols) {
+        this(title, field, function, titleStyle);
+        this.rows = rows;
+        this.cols = cols;
+        this.titleStyle.setColumnWidth(columnWidth);
+    }
+
+    public ExcelMapping(String content, int rows, int cols) {
+        this.content = content;
+        this.rows = rows;
+        this.cols = cols;
+    }
+
+
+    public ExcelMapping(String content, int rows, int cols, ExcelColumnCellStyle headerStyle) {
+        this(content, rows, cols);
+        this.titleStyle = headerStyle;
+    }
+
+
+    @Override
+    public String toString() {
+        return "ExcelMapping{" +
+                "content=" + content +
+                ", title='" + title + '\'' +
+                ", field='" + field + '\'' +
+                ", rows=" + rows +
+                ", cols=" + cols +
+                ", columnStyle=" + columnStyle +
+                ", titleStyle=" + titleStyle +
+                '}';
+    }
 }

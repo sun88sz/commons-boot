@@ -17,10 +17,10 @@
             <artifactId>poi</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-core</artifactId>
         </dependency>
-
+        
 
         <dependency>
             <groupId>junit</groupId>
